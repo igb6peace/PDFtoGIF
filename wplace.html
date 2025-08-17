@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>wplace.live – Pixel Lab</title>
+  <meta name="description" content="写真をドット(ピクセル)化・各種フィルター適用・そのままダウンロード。完全フロント実装。" />
+  <!-- Tailwind via Play CDN (build不要) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['ui-sans-serif','system-ui','-apple-system','Segoe UI','Roboto','Noto Sans','Inter','sans-serif'] },
+          colors: { brand: { DEFAULT:'#111827' } }
+        }
+      }
+    }
+  </script>
+  <style>
+    html, body { height: 100%; }
+    .dropzone.dragover { border-color: rgb(59 130 246); background: rgba(59,130,246,.06); }
+    canvas { image-rendering: pixelated; }
+    .scrollbar-none::-webkit-scrollbar { display: none; }
+  </style>
+</head>
+<body class="bg-neutral-950 text-neutral-100 min-h-screen">
+  <header class="border-b border-neutral-800 bg-neutral-950/60 backdrop-blur sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-2xl bg-gradient-to-br from-fuchsia-500 to-cyan-400"></div>
+        <h1 class="text-lg font-semibold tracking-tight">wplace.live – Pixel Lab</h1>
+        <span class="text-xs text-neutral-400 ml-2">運営費ゼロ / 100%フロント変換</span>
+      </div>
+      <nav class="flex items-center gap-2 text-sm">
+        <a href="#" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700">ドット化</a>
+        <a href="#filters" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700">その他フィルター</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-2 gap-6">
+    <!-- Left: Input & Controls -->
+    <section>
+      <div class="dropzone relative border-2 border-dashed border-neutral-800 rounded-2xl p-6 bg-neutral-900/40 hover:bg-neutral-900/60 transition">
+        <input id="fileInput" type="file" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+        <div class="pointer-events-none">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-neutral-800 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="w-6 h-6 text-neutral-300"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 16V4m0 12-3-3m3 3 3-3M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+            </div>
+            <div>
+              <p class="font-medium">画像をドラッグ＆ドロップ or クリックして選択</p>
+              <p class="text-xs text-neutral-400">ローカルで処理。サーバーには送信されません。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 grid gap-4 bg-neutral-900/50 border border-neutral-800 rounded-2xl p-5" id="filters">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold">コントロール</h2>
+          <div class="flex gap-2">
+            <button id="resetBtn" class="px-3 py-1.5 rounded-xl border border-neutral-800 bg-neutral-950 hover:bg-neutral-900">リセット</button>
+            <button id="downloadPngBtn" class="px-3 py-1.5 rounded-xl border border-neutral-800 bg-fuchsia-600/90 hover:bg-fuchsia-600 text-white">PNG保存</button>
+          </div>
+        </div>
+
+        <label class="flex items-center gap-3">
+          <span class="w-32 text-sm text-neutral-300">ピクセルサイズ</span>
+          <input id="pixelSize" type="range" min="2" max="64" value="12" class="w-full">
+          <span id="pixelSizeVal" class="text-sm w-9 text-right">12</span>
+        </label>
+
+        <label class="flex items-center gap-3">
+          <span class="w-32 text-sm text-neutral-300">形状</span>
+          <select id="shape" class="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2">
+            <option value="square">四角（高速）</option>
+            <option value="circle">丸（きれい）</option>
+          </select>
+        </label>
+
+        <label class="flex items-center gap-3">
+          <span class="w-32 text-sm text-neutral-300">色段階（ポスタライズ）</span>
+          <input id="posterize" type="range" min="0" max="8" value="0" class="w-full">
+          <span id="posterizeVal" class="text-sm w-9 text-right">0</span>
+        </label>
+
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex items-center gap-2"><input id="grayscale" type="checkbox" class="accent-neutral-200"><span class="text-sm">グレースケール</span></label>
+          <label class="flex items-center gap-2"><input id="sepia" type="checkbox" class="accent-neutral-200"><span class="text-sm">セピア</span></label>
+          <label class="flex items-center gap-2"><input id="invert" type="checkbox" class="accent-neutral-200"><span class="text-sm">反転</span></label>
+          <label class="flex items-center gap-2"><input id="dither" type="checkbox" class="accent-neutral-200"><span class="text-sm">ディザ（4×4）</span></label>
+          <label class="flex items-center gap-2 col-span-2"><input id="asciiToggle" type="checkbox" class="accent-neutral-200"><span class="text-sm">ASCIIアートも生成（テキスト）</span></label>
+        </div>
+
+        <div class="text-xs text-neutral-500">※ 画像はブラウザ内でのみ処理されます。広告枠は下部に用意（ダミー）。</div>
+      </div>
+
+      <div id="ad-slot" class="mt-6 h-28 rounded-2xl border border-neutral-800 bg-neutral-900/40 flex items-center justify-center text-neutral-500 text-sm">
+        （広告枠）AdSense/Carbonなどを後で埋め込み
+      </div>
+    </section>
+
+    <!-- Right: Preview -->
+    <section class="space-y-4">
+      <div class="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold">プレビュー</h3>
+          <div class="flex gap-2">
+            <button id="downloadJpgBtn" class="px-3 py-1.5 rounded-xl border border-neutral-800 bg-neutral-950 hover:bg-neutral-900">JPG保存</button>
+            <button id="copyAsciiBtn" class="px-3 py-1.5 rounded-xl border border-neutral-800 bg-neutral-950 hover:bg-neutral-900">ASCIIコピー</button>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-neutral-950 rounded-xl border border-neutral-800 overflow-hidden min-h-[280px] flex items-center justify-center">
+            <canvas id="originalCanvas" class="max-h-[70vh] w-full"></canvas>
+          </div>
+          <div class="bg-neutral-950 rounded-xl border border-neutral-800 overflow-hidden min-h-[280px] flex items-center justify-center relative">
+            <canvas id="outputCanvas" class="max-h-[70vh] w-full"></canvas>
+            <pre id="asciiOut" class="absolute inset-0 p-3 text-[8px] leading-[8px] font-mono text-neutral-200 whitespace-pre overflow-auto hidden bg-neutral-950/70"></pre>
+          </div>
+        </div>
+      </div>
+
+      <details class="bg-neutral-900/40 border border-neutral-800 rounded-2xl p-4">
+        <summary class="cursor-pointer text-sm text-neutral-300">技術メモ（公開用の説明文にそのまま使えます）</summary>
+        <ul class="list-disc pl-6 text-sm text-neutral-400 mt-2 space-y-1">
+          <li>処理はすべてブラウザ上で完結（オフラインでも動作）</li>
+          <li>ピクセル化は縮小→拡大（最近傍補間）またはドット円描画の2方式</li>
+          <li>ポスタライズは各チャネルを 2^n 段階に量子化</li>
+          <li>ディザは 4×4 Bayer で擬似中間調を表現</li>
+          <li>ASCII は輝度を文字ランプにマッピングしブロック単位で描画</li>
+        </ul>
+      </details>
+    </section>
+  </main>
+
+  <footer class="max-w-6xl mx-auto px-4 pb-12 text-xs text-neutral-500">
+    <div class="flex items-center justify-between">
+      <span>© <span id="year"></span> wplace.live</span>
+      <a class="underline decoration-dotted" href="#">プライバシー（画像は保存しません）</a>
+    </div>
+  </footer>
+
+  <script>
+  (function(){
+    const fileInput = document.getElementById('fileInput');
+    const dropzone = document.querySelector('.dropzone');
+    const originalCanvas = document.getElementById('originalCanvas');
+    const outputCanvas = document.getElementById('outputCanvas');
+    const asciiOut = document.getElementById('asciiOut');
+
+    const pixelSize = document.getElementById('pixelSize');
+    const pixelSizeVal = document.getElementById('pixelSizeVal');
+    const shape = document.getElementById('shape');
+    const posterize = document.getElementById('posterize');
+    const posterizeVal = document.getElementById('posterizeVal');
+    const grayscale = document.getElementById('grayscale');
+    const sepia = document.getElementById('sepia');
+    const invert = document.getElementById('invert');
+    const dither = document.getElementById('dither');
+    const asciiToggle = document.getElementById('asciiToggle');
+
+    const resetBtn = document.getElementById('resetBtn');
+    const downloadPngBtn = document.getElementById('downloadPngBtn');
+    const downloadJpgBtn = document.getElementById('downloadJpgBtn');
+    const copyAsciiBtn = document.getElementById('copyAsciiBtn');
+
+    const year = document.getElementById('year');
+    year.textContent = new Date().getFullYear();
+
+    let imageBitmap = null;
+    let srcW = 0, srcH = 0;
+
+    function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+    function loadFile(file){
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const url = e.target.result;
+        imageBitmap = await createImageBitmap(await (await fetch(url)).blob());
+        srcW = imageBitmap.width; srcH = imageBitmap.height;
+        // Fit into max size to keep UI smooth
+        const maxSide = 1600; // preview上限
+        const scale = Math.min(1, maxSide/Math.max(srcW, srcH));
+        const dispW = Math.round(srcW*scale), dispH = Math.round(srcH*scale);
+        originalCanvas.width = dispW; originalCanvas.height = dispH;
+        const octx = originalCanvas.getContext('2d');
+        octx.imageSmoothingEnabled = true;
+        octx.clearRect(0,0,dispW,dispH);
+        octx.drawImage(imageBitmap, 0,0, dispW, dispH);
+        // 同じサイズで出力キャンバスも準備
+        outputCanvas.width = dispW; outputCanvas.height = dispH;
+        render();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Pixelate with two modes
+    function render(){
+      if(!imageBitmap){
+        // 何もなければキャンバスをクリア
+        const ctxO = originalCanvas.getContext('2d');
+        ctxO.clearRect(0,0,originalCanvas.width, originalCanvas.height);
+        const ctx = outputCanvas.getContext('2d');
+        ctx.clearRect(0,0,outputCanvas.width, outputCanvas.height);
+        asciiOut.classList.add('hidden'); asciiOut.textContent = '';
+        return;
+      }
+      const ctx = outputCanvas.getContext('2d');
+      const w = outputCanvas.width, h = outputCanvas.height;
+      ctx.clearRect(0,0,w,h);
+
+      const px = parseInt(pixelSize.value,10);
+      const levels = parseInt(posterize.value,10); // 0=無効
+      const useCircle = shape.value === 'circle';
+      const useAscii = asciiToggle.checked;
+
+      // 低解像度に縮小
+      const smallW = Math.max(1, Math.floor(w/px));
+      const smallH = Math.max(1, Math.floor(h/px));
+
+      // オフスクリーンで小さく描画
+      const off = new OffscreenCanvas ? new OffscreenCanvas(smallW, smallH) : document.createElement('canvas');
+      off.width = smallW; off.height = smallH;
+      const octx = off.getContext('2d');
+      octx.imageSmoothingEnabled = true; // 小さくするときは補間OK
+      octx.drawImage(originalCanvas, 0,0, smallW, smallH);
+
+      // 画素データ取得
+      let imgData = octx.getImageData(0,0, smallW, smallH);
+      let data = imgData.data;
+
+      // オプション変換（グレースケール/セピア/反転/ポスタライズ） on low-res
+      for(let i=0;i<data.length;i+=4){
+        let r=data[i], g=data[i+1], b=data[i+2];
+        if(grayscale.checked){
+          const y = 0.2126*r + 0.7152*g + 0.0722*b; r=g=b=y;
+        }
+        if(sepia.checked){
+          const nr = clamp(0.393*r + 0.769*g + 0.189*b,0,255);
+          const ng = clamp(0.349*r + 0.686*g + 0.168*b,0,255);
+          const nb = clamp(0.272*r + 0.534*g + 0.131*b,0,255);
+          r=nr; g=ng; b=nb;
+        }
+        if(invert.checked){ r=255-r; g=255-g; b=255-b; }
+        if(levels>0){
+          const steps = Math.pow(2, levels); // 2^levels
+          const q = (v)=> Math.round((Math.round((v/255)*(steps-1)))*(255/(steps-1)));
+          r=q(r); g=q(g); b=q(b);
+        }
+        data[i]=r; data[i+1]=g; data[i+2]=b; // alphaそのまま
+      }
+
+      if(dither.checked){ // 4x4 Bayer ordered dither on luminance
+        const bayer = [
+          [0,  8,  2, 10],
+          [12, 4, 14,  6],
+          [3, 11,  1,  9],
+          [15, 7, 13,  5]
+        ];
+        for(let y=0;y<smallH;y++){
+          for(let x=0;x<smallW;x++){
+            const idx=(y*smallW+x)*4;
+            let r=data[idx], g=data[idx+1], b=data[idx+2];
+            const lum = 0.2126*r + 0.7152*g + 0.0722*b;
+            const threshold = (bayer[y%4][x%4]+0.5)*16; // 0..255
+            const v = lum < threshold ? 0 : 255;
+            data[idx]=data[idx+1]=data[idx+2]=v;
+          }
+        }
+      }
+
+      // 出力
+      if(!useCircle){
+        // スクエア：最近傍で拡大
+        const small = new ImageData(data, smallW, smallH);
+        octx.putImageData(small,0,0);
+        ctx.imageSmoothingEnabled = false; // 拡大時はドットを保つ
+        ctx.drawImage(off, 0,0, smallW, smallH, 0,0, w, h);
+      } else {
+        // サークル：各ピクセルを円として描画
+        ctx.imageSmoothingEnabled = false;
+        for(let y=0;y<smallH;y++){
+          for(let x=0;x<smallW;x++){
+            const idx=(y*smallW+x)*4;
+            const r=data[idx], g=data[idx+1], b=data[idx+2], a=data[idx+3]/255;
+            ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+            const cx = x*px + px/2;
+            const cy = y*px + px/2;
+            const radius = px*0.5; // 直径=px
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, Math.PI*2);
+            ctx.fill();
+          }
+        }
+      }
+
+      // ASCII生成
+      if(useAscii){
+        asciiOut.classList.remove('hidden');
+        const chars = "@#%8&WM$B0mNQkhadpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ";
+        const rampLen = chars.length;
+        let lines = [];
+        for(let y=0;y<smallH;y++){
+          let line='';
+          for(let x=0;x<smallW;x++){
+            const idx=(y*smallW+x)*4;
+            const r=data[idx], g=data[idx+1], b=data[idx+2];
+            const lum = 0.2126*r + 0.7152*g + 0.0722*b; // 0..255
+            const pos = Math.floor((lum/255)*(rampLen-1));
+            line += chars[rampLen-1-pos];
+          }
+          lines.push(line);
+        }
+        asciiOut.textContent = lines.join('\n');
+      } else {
+        asciiOut.classList.add('hidden');
+        asciiOut.textContent = '';
+      }
+    }
+
+    function download(type){
+      if(!outputCanvas.width || !outputCanvas.height) return;
+      const link = document.createElement('a');
+      link.download = `pixel.${type}`;
+      if(type === 'png'){
+        link.href = outputCanvas.toDataURL('image/png');
+      } else if(type === 'jpg'){
+        link.href = outputCanvas.toDataURL('image/jpeg', 0.92);
+      }
+      document.body.appendChild(link); link.click(); link.remove();
+    }
+
+    // Events
+    fileInput.addEventListener('change', (e)=> loadFile(e.target.files[0]));
+
+    ;['dragenter','dragover'].forEach(evt=>{
+      dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
+    });
+    ;['dragleave','drop'].forEach(evt=>{
+      dropzone.addEventListener(evt, (e)=>{ e.preventDefault(); dropzone.classList.remove('dragover'); });
+    });
+    dropzone.addEventListener('drop', (e)=>{
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if(file) loadFile(file);
+    });
+
+    pixelSize.addEventListener('input', ()=>{ pixelSizeVal.textContent=pixelSize.value; render(); });
+    posterize.addEventListener('input', ()=>{ posterizeVal.textContent=posterize.value; render(); });
+    ;[shape, grayscale, sepia, invert, dither, asciiToggle].forEach(el=> el.addEventListener('change', render));
+
+    resetBtn.addEventListener('click', ()=>{
+      pixelSize.value = 12; pixelSizeVal.textContent='12';
+      shape.value = 'square';
+      posterize.value = 0; posterizeVal.textContent='0';
+      grayscale.checked = sepia.checked = invert.checked = dither.checked = asciiToggle.checked = false;
+      render();
+    });
+
+    downloadPngBtn.addEventListener('click', ()=> download('png'));
+    downloadJpgBtn.addEventListener('click', ()=> download('jpg'));
+    copyAsciiBtn.addEventListener('click', async ()=>{
+      if(!asciiOut.textContent) return;
+      try{ await navigator.clipboard.writeText(asciiOut.textContent); copyAsciiBtn.textContent='コピー完了'; setTimeout(()=>copyAsciiBtn.textContent='ASCIIコピー',1200);}catch(e){ alert('コピーできませんでした'); }
+    });
+
+    // 初期レンダリング（空）
+    render();
+  })();
+  </script>
+</body>
+</html>
